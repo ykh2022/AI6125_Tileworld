@@ -1,14 +1,19 @@
 package tileworld;
 
+import java.awt.BorderLayout;
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
 import sim.display.Console;
 import sim.display.Controller;
 import sim.display.Display2D;
 import sim.display.GUIState;
 import sim.engine.SimState;
+import sim.engine.Steppable;
 import sim.portrayal.grid.ObjectGridPortrayal2D;
 import tileworld.agent.TWAgent;
 import tileworld.environment.TWEnvironment;
@@ -44,6 +49,7 @@ public class TWGUI extends GUIState {
      * Frame which displays
      */
     public JFrame displayFrame;
+    private JLabel parameterLabel;
     /**
      * Number of pixels that each cell should be represented by (for display).
      */
@@ -124,6 +130,7 @@ public class TWGUI extends GUIState {
     public void start() {
         super.start();
         setupPortrayals();
+        installAutoStopAtEndTime();
     }
 
     /**
@@ -144,6 +151,12 @@ public class TWGUI extends GUIState {
         //create and display frame
         displayFrame = display.createFrame();
         c.registerFrame(displayFrame);   // register the frame so it appears in the "Display" list
+
+        // Add a read-only parameter area to the top of the GUI frame.
+        TWEnvironment currentEnv = (TWEnvironment) state;
+        JPanel parameterPanel = createParameterPanel(currentEnv);
+        displayFrame.getContentPane().add(parameterPanel, BorderLayout.NORTH);
+
         displayFrame.setVisible(true);
 
         // attach the portrayal for the grid field
@@ -154,6 +167,56 @@ public class TWGUI extends GUIState {
 
         // specify the backdrop color  -- what gets painted behind the displays
         display.setBackdrop(Color.gray);
+    }
+
+    /**
+     * Author: YKH
+     * Time: 2026-03-20
+     * Function: Creates a read-only parameter display panel for current simulation setup.
+     */
+    private JPanel createParameterPanel(TWEnvironment env) {
+        JPanel panel = new JPanel(new BorderLayout());
+        this.parameterLabel = new JLabel(buildParameterText(env));
+        panel.add(this.parameterLabel, BorderLayout.CENTER);
+        return panel;
+    }
+
+    /**
+     * Author: YKH
+     * Time: 2026-03-20
+     * Function: Builds the read-only HTML string that summarizes active Parameters values.
+     */
+    private String buildParameterText(TWEnvironment env) {
+        return String.format(
+                Locale.US,
+                "<html><b>Read-only Parameters</b> | Grid: %dx%d | Steps: %d | Fuel: %d | Sensor: %d | "
+                        + "Tile/Hole/Obstacle Mean: %.2f/%.2f/%.2f | Lifetime: %d</html>",
+                env.getxDimension(),
+                env.getyDimension(),
+                Parameters.endTime,
+                Parameters.defaultFuelLevel,
+                Parameters.defaultSensorRange,
+                Parameters.tileMean,
+                Parameters.holeMean,
+                Parameters.obstacleMean,
+                Parameters.lifeTime);
+    }
+
+    /**
+     * Author: YKH
+     * Time: 2026-03-20
+     * Function: Stops GUI simulation automatically when schedule steps reach Parameters.endTime.
+     */
+    private void installAutoStopAtEndTime() {
+        final SimState currentState = this.state;
+        currentState.schedule.scheduleRepeating(new Steppable() {
+            @Override
+            public void step(SimState state) {
+                if (state.schedule.getSteps() >= Parameters.endTime) {
+                    state.kill();
+                }
+            }
+        }, Integer.MAX_VALUE, 1.0);
     }
 
 
