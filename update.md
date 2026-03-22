@@ -6,7 +6,7 @@
 - Initialized Git repository content and created first project commit.
 - Added project documentation files:
   - `README.md`
-  - `updata.md`
+  - `update.md`
 
 ### Scope
 - Imported full Tileworld codebase under:
