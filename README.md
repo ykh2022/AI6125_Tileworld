@@ -38,11 +38,29 @@ Tileworld 是一个网格环境，包含：
 
 违反上述限制会导致课程评分扣分。
 
-## 建议实现模块
+## Agent 实现
 
-- Planning module（必做）：根据当前感知 + 记忆规划动作
-- Memory module（可选）：可扩展 `TWAgentWorkingMemory`
-- Communication module（可选）：可扩展 `Message`，并在规划时读取 `TWEnvironment.getMessages()`
+### SimpleTWAgent（基线策略）
+
+基于规则的多智能体协作策略：
+- Zone-based exploration：按 agent 编号分配搜索区域
+- 消息驱动的目标协调：TARGET_CLAIM / TARGET_RELEASE / TARGET_INVALID
+- 发现广播：TILE_FOUND / HOLE_FOUND / OBSTACLE_FOUND / FUEL_STATION_FOUND
+- 状态广播：LOW_FUEL / STUCK
+- TTL 机制清理过期信息和声明
+
+### RLTWAgent（强化学习策略）
+
+在 SimpleTWAgent 基础上引入强化学习优化的 agent：
+- 继承 SimpleTWAgent 的通信协调框架
+- 扩展的参数调优（更大的 INFO_TTL、更小的 zone penalty 等）
+- 与 SimpleTWAgent 共享同一套消息协议，可混合部署
+
+### 通信模块
+
+- `AgentMessageType`：定义 9 种消息类型（发现、声明、状态）
+- `AgentMessage`：结构化消息载体，包含坐标、时间戳、优先级、TTL
+- 消息通过 `TWEnvironment.receiveMessage()` 广播
 
 ## 实验配置（课程说明）
 
@@ -66,24 +84,34 @@ Tileworld 是一个网格环境，包含：
 
 ## 依赖与运行要求
 
-课程文档要求：
 - JDK `1.8`
 - Java3D `1.5`
 - `MASON_14.jar`（不要使用 `MASON_20.jar`，与给定代码不兼容）
 
-当前项目 `.classpath` 已引用：
-- `E:/Kun/Study/NTU/6125_Multi Agent/project/MASON_14.jar`
-
 ## 代码结构
 
-- `src/tileworld/`：入口、参数、GUI
-- `src/tileworld/agent/`：agent 与感知/记忆/消息
-- `src/tileworld/planners/`：规划与路径
+- `src/tileworld/`：入口、参数、GUI（TWGUI / CatGUI）
+- `src/tileworld/agent/`：agent 实现（SimpleTWAgent / RLTWAgent）与通信模块
+- `src/tileworld/planners/`：A* 路径规划
 - `src/tileworld/environment/`：环境与对象（课程限制：不应修改）
 - `src/tileworld/exceptions/`：异常定义
 - `bin/`：编译输出
 
 ## 运行方式
 
-- GUI：运行 `tileworld.TWGUI`
-- Headless：运行 `tileworld.TileworldMain`
+```bash
+# 编译
+build.bat
+
+# GUI 模式（标准界面）
+run_gui.bat
+
+# GUI 模式（CatGUI 猫猫主题界面）
+run_gui_cat.bat
+
+# 无头模式
+run_headless.bat
+
+# 批量评测
+run_eval.ps1
+```
