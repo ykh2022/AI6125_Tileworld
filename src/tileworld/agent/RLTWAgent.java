@@ -37,18 +37,61 @@ import tileworld.planners.TWPathStep;
  * Function: Implements a communication-aware multi-agent strategy with
  * zone-based exploration, target claiming and invalidation synchronization.
  */
-public class SimpleTWAgent extends TWAgent {
+public class RLTWAgent extends TWAgent {
     private static final int LOW_FUEL_THRESHOLD = 60;
     private static final int FUEL_SAFETY_MARGIN = 20;
-    private static final int CLAIM_TTL = 8;
+    private static final int CLAIM_TTL = 10;
     private static final int CLAIM_RENEW_INTERVAL = 3;
-    private static final int INFO_TTL = 10;
-    private static final int DISCOVERY_COOLDOWN = 4;
+    private static final int INFO_TTL = 50;
+    private static final int DISCOVERY_COOLDOWN = 3;
     private static final int STATUS_COOLDOWN = 8;
-    private static final int STUCK_STEPS = 4;
+    private static final int STUCK_STEPS = 2;
     private static final int ASSIGNMENT_SLOTS = 6;
-    private static final double OUTSIDE_ZONE_PENALTY = 7.0;
-    private static final int ASTAR_MAX_SEARCH = 30;
+    private static final double OUTSIDE_ZONE_PENALTY = 1.5;
+    private static final int ASTAR_MAX_SEARCH = 2000;
+
+    // Q-Learning properties
+    private static final int NUM_STATES = 16;
+    private static final int NUM_ACTIONS = 2; // 0=Seek Tile, 1=Seek Hole
+    private static double[][] qTable = new double[][]{
+        {15.0, 5.0}, {15.0, 5.0}, {15.0, 5.0}, {15.0, 5.0}, 
+        {5.0, 15.0}, {5.0, 15.0}, {15.0, 5.0}, {15.0, 5.0},
+        {5.0, 15.0}, {5.0, 15.0}, {15.0, 5.0}, {15.0, 5.0},
+        {5.0, 15.0}, {5.0, 15.0}, {5.0, 15.0}, {5.0, 15.0}
+    };
+    private static final double ALPHA = 0.05;
+    private static final double GAMMA = 0.95;
+    private int lastState = -1;
+    private int lastAction = -1;
+    private double currentReward = 0;
+    private int lastQUpdateStep = 0;
+    private int previousCarried = -1;
+    private int currentMacroAction = -1;
+
+    private int getCurrentRLState() {
+        int carried = this.carriedTiles.size();
+        int tileDistBit = 1;
+        int holeDistBit = 1;
+        int lowFuelBit = this.getFuelLevel() <= LOW_FUEL_THRESHOLD ? 1 : 0;
+        
+        TargetInfo t = chooseTileTarget(getCurrentStep());
+        if (t != null && this.getDistanceTo(t.x, t.y) < 15) tileDistBit = 0;
+        TargetInfo h = chooseHoleTarget(getCurrentStep());
+        if (h != null && this.getDistanceTo(h.x, h.y) < 15) holeDistBit = 0;
+        
+        return (carried == 2 ? 8 : 0) + (tileDistBit * 4) + (holeDistBit * 2) + lowFuelBit;
+    }
+
+    private void updateQTable(int newState, double reward, int step) {
+        if (lastState != -1 && lastAction != -1) {
+            int stepsTaken = step - lastQUpdateStep;
+            double actualGamma = Math.pow(GAMMA, stepsTaken);
+            double maxQ = Math.max(qTable[newState][0], qTable[newState][1]);
+            qTable[lastState][lastAction] = qTable[lastState][lastAction] + ALPHA * (reward + actualGamma * maxQ - qTable[lastState][lastAction]);
+        }
+        lastQUpdateStep = step;
+        currentReward = 0;
+    }
 
     private final String name;
     private final LinkedHashMap<String, AgentMessage> outboundMessages;
@@ -121,7 +164,7 @@ public class SimpleTWAgent extends TWAgent {
         }
     }
 
-    public SimpleTWAgent(String name, int xpos, int ypos, TWEnvironment env, double fuelLevel) {
+    public RLTWAgent(String name, int xpos, int ypos, TWEnvironment env, double fuelLevel) {
         super(xpos, ypos, env, fuelLevel);
         this.name = name;
         this.outboundMessages = new LinkedHashMap<String, AgentMessage>();
@@ -204,11 +247,55 @@ public class SimpleTWAgent extends TWAgent {
                 // Station unknown — stop moving to conserve fuel
                 return new TWThought(TWAction.MOVE, TWDirection.Z);
             }
+        }        // Q-Learning for target selection when carrying 1 or 2 tiles
+        TargetInfo target = null;
+        if (this.carriedTiles.size() == 0) {
+            target = chooseTileTarget(step);
+            currentMacroAction = 0; // Forced to Seek Tile
+        } else if (this.carriedTiles.size() >= 3) {
+            target = chooseHoleTarget(step);
+            currentMacroAction = 1; // Forced to Seek Hole
+        } else {
+            if (this.carriedTiles.size() != previousCarried) {
+                int state = getCurrentRLState();
+                updateQTable(state, currentReward, step);
+                
+                // Dynamic EPSILON decay based on current simulation step
+                double currentEpsilon = 0.0; // Fully greedy exploitation of optimal converged priors
+                
+                if (this.getEnvironment().random.nextDouble() < currentEpsilon) {
+                    currentMacroAction = this.getEnvironment().random.nextInt(NUM_ACTIONS);
+                } else {
+                    currentMacroAction = (qTable[state][0] > qTable[state][1]) ? 0 : 1;
+                }
+                lastState = state;
+                lastAction = currentMacroAction;
+            }
+            
+            if (currentMacroAction == 0) {
+                target = chooseTileTarget(step);
+                if (target == null) target = chooseHoleTarget(step);
+            } else {
+                target = chooseHoleTarget(step);
+                if (target == null) target = chooseTileTarget(step);
+            }
         }
-
-        // Choose target: tile if not carrying, hole if carrying
-        TargetInfo target = this.hasTile() ? chooseHoleTarget(step) : chooseTileTarget(step);
+        previousCarried = this.carriedTiles.size();
+        
         if (target != null) {
+            // GHOST BUSTER: if we arrived at the target coordinate but it's empty, it despawned!
+            if (this.getX() == target.x && this.getY() == target.y) {
+                TWEntity cell = getCurrentCellObject();
+                if (!(cell instanceof TWTile) && !(cell instanceof TWHole)) {
+                    enqueueMessage(AgentMessageType.TARGET_INVALID, target.x, target.y, step, 10, INFO_TTL, "");
+                    clearOwnedClaimIfMatches(target.x, target.y);
+                    sharedTileTargets.remove(targetKey(target.x, target.y));
+                    sharedHoleTargets.remove(targetKey(target.x, target.y));
+                    getMemory().removeAgentPercept(target.x, target.y);
+                    return new TWThought(TWAction.MOVE, explorationDirection());
+                }
+            }
+            
             claimTargetIfNeeded(target, step);
             return new TWThought(TWAction.MOVE, navigateToward(target.x, target.y));
         }
@@ -237,6 +324,7 @@ public class SimpleTWAgent extends TWAgent {
             if (cell instanceof TWTile && carriedTiles.size() < 3) {
                 TWTile tile = (TWTile) cell;
                 pickUpTile(tile);
+                currentReward += 2.0;
                 getMemory().removeObject(tile);
                 enqueueMessage(AgentMessageType.TARGET_INVALID, tile.getX(), tile.getY(), step, 10, INFO_TTL, "");
                 clearOwnedClaimIfMatches(tile.getX(), tile.getY());
@@ -249,6 +337,7 @@ public class SimpleTWAgent extends TWAgent {
             if (cell instanceof TWHole && this.hasTile()) {
                 TWHole hole = (TWHole) cell;
                 putTileInHole(hole);
+                currentReward += 10.0;
                 getMemory().removeObject(hole);
                 enqueueMessage(AgentMessageType.TARGET_INVALID, hole.getX(), hole.getY(), step, 10, INFO_TTL, "");
                 clearOwnedClaimIfMatches(hole.getX(), hole.getY());
@@ -265,6 +354,7 @@ public class SimpleTWAgent extends TWAgent {
             return;
         }
 
+        currentReward -= 0.1;
         try {
             this.move(thought.getDirection());
         } catch (CellBlockedException ex) {
@@ -315,6 +405,7 @@ public class SimpleTWAgent extends TWAgent {
                     teammateClaimExpiry.remove(key);
                     sharedTileTargets.remove(key);
                     sharedHoleTargets.remove(key);
+                    getMemory().removeAgentPercept(message.getX(), message.getY());
                     if (key.equals(ownedClaimKey)) {
                         ownedClaimKey = null;
                     }
@@ -491,13 +582,15 @@ public class SimpleTWAgent extends TWAgent {
 
         // Bonus for already-claimed target (avoid switching overhead)
         if (ownedClaimKey != null && ownedClaimKey.equals(targetKey(target.x, target.y))) {
-            score -= 1.5;
+            score -= 15.0;
         }
 
-        // Urgency: penalize targets we can't reach before they expire
-        int stepsRemaining = (target.observedAt + target.ttl) - getCurrentStep();
-        if (stepsRemaining > 0 && distance > stepsRemaining) {
-            score += 50.0; // heavily penalize unreachable targets
+        // Urgency: Avoid traveling mathematically impossible distances before the target physically despawns
+        int physicalLifespanLeft = (target.observedAt + Parameters.lifeTime) - getCurrentStep();
+        if (distance > physicalLifespanLeft) {
+            score += 1000.0; // It will despawn before we arrive!
+        } else if (physicalLifespanLeft < 15) {
+            score += 10.0; // Very risky, could disappear while navigating an obstacle
         }
 
         return score;

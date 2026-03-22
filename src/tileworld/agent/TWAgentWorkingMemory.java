@@ -45,7 +45,7 @@ public class TWAgentWorkingMemory {
 	 */
 	private Schedule schedule;
 	private TWAgent me;
-	private final static int MAX_TIME = 10;
+	private final static int MAX_TIME = 50;
 	private final static float MEM_DECAY = 0.5f;
 
 	private ObjectGrid2D memoryGrid;
@@ -111,7 +111,7 @@ public class TWAgentWorkingMemory {
 		assert (sensedObjects.size() == objectXCoords.size() && sensedObjects.size() == objectYCoords.size());
 
 		//        me.getEnvironment().getMemoryGrid().clear();  // THis is equivalent to only having sensed area in memory
-		//       this.decayMemory();       // You might want to think about when to call the decay function as well.
+		this.decayMemory();       // Remove stale memories to avoid acting on expired objects
 		for (int i = 0; i < sensedObjects.size(); i++) {
 			TWEntity o = (TWEntity) sensedObjects.get(i);
 			if (!(o instanceof TWObject)) {
@@ -174,18 +174,27 @@ public class TWAgentWorkingMemory {
 	 * remove probabilistically (exponential decay of memory)
 	 */
 	public void decayMemory() {
-		// put some decay on other memory pieces (this will require complete
-		// iteration over memory though, so expensive.
-		//This is a simple example of how to do this.
-		//        for (int x = 0; x < this.objects.length; x++) {
-		//       for (int y = 0; y < this.objects[x].length; y++) {
-		//           TWAgentPercept currentMemory =  objects[x][y];
-		//           if(currentMemory!=null && currentMemory.getT() < schedule.getTime()-MAX_TIME){
-		//               memoryGrid.set(x, y, null);
-		//               memorySize--;
-		//           }
-		//       }
-		//   }
+		double currentTime = schedule.getTime();
+		for (int x = 0; x < this.objects.length; x++) {
+			for (int y = 0; y < this.objects[x].length; y++) {
+				TWAgentPercept currentMemory = objects[x][y];
+				if (currentMemory != null) {
+					double age = currentTime - currentMemory.getT();
+					if (age > MAX_TIME) {
+						objects[x][y] = null;
+						memoryGrid.set(x, y, null);
+						memorySize--;
+					} else if (age > 5) {
+						double decayProbability = age / (MAX_TIME * 2.0);
+						if (me.getEnvironment().random.nextDouble() < decayProbability * MEM_DECAY) {
+							objects[x][y] = null;
+							memoryGrid.set(x, y, null);
+							memorySize--;
+						}
+					}
+				}
+			}
+		}
 	}
 
 

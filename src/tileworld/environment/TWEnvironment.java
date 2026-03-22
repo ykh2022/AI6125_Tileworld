@@ -15,7 +15,7 @@ import sun.font.TrueTypeFont;
 import tileworld.Parameters;
 import tileworld.TWGUI;
 import tileworld.agent.Message;
-import tileworld.agent.SimpleTWAgent;
+import tileworld.agent.RLTWAgent;
 import tileworld.agent.TWAgent;
 
 /**
@@ -107,11 +107,12 @@ public class TWEnvironment extends SimState implements Steppable {
 
         schedule.scheduleRepeating(this, 1, 1.0);
         
-        //Now we create some agents
-        Int2D pos = this.generateRandomLocation();
-        createAgent(new SimpleTWAgent("agent1", pos.getX(), pos.getY(), this, Parameters.defaultFuelLevel));
-        pos = this.generateRandomLocation();
-        createAgent(new SimpleTWAgent("agent2", pos.getX(), pos.getY(), this, Parameters.defaultFuelLevel));
+        //Now we create some agents (6 agents for team competition)
+        for (int i = 1; i <= 6; i++) {
+            Int2D pos = this.generateRandomLocation();
+            createAgent(new RLTWAgent("agent" + i, pos.getX(), pos.getY(), this, Parameters.defaultFuelLevel));
+        }
+        Int2D pos;
         
 //        
         //create the fueling station

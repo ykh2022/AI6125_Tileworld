@@ -13,5 +13,6 @@ public enum AgentMessageType {
     TARGET_RELEASE,
     TARGET_INVALID,
     LOW_FUEL,
-    STUCK
+    STUCK,
+    FUEL_STATION_FOUND
 }

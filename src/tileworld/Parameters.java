@@ -30,10 +30,10 @@ public class Parameters {
 
     //Object Parameters
     // mean, dev: control the number of objects to be created in every time step (i.e. average object creation rate)
-    public static final double tileMean = 0.2;
-    public static final double holeMean = 0.2;
+    public static final double tileMean = 0.4;
+    public static final double holeMean = 0.4;
     public static final double obstacleMean = 0.2;
-    public static final double tileDev = 0.05f;
+    public static final double tileDev = 0.1f;
     public static final double holeDev = 0.05f;
     public static final double obstacleDev = 0.05f;
     // the life time of each object
